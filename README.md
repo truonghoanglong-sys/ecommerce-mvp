@@ -46,13 +46,6 @@ npm install
 npm test          # ghi kết quả vào tests/e2e-report.md
 ```
 
-## Tài khoản có sẵn
-
-| Username | Password | Role |
-|---|---|---|
-| admin | Admin@123 | ADMIN |
-| shipper | Shipper@123 | SHIPMENT_STAFF |
-
 ## API: REST tại Gateway và RPC tương ứng
 
 | Method | Endpoint | gRPC | Quyền |
