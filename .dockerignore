@@ -1,0 +1,7 @@
+# Không copy node_modules/.env từ máy bạn vào image (image tự npm install bên trong Linux)
+**/node_modules
+**/.env
+**/npm-debug.log
+.git
+docs
+tests

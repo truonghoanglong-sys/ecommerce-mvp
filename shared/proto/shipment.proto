@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package shipment;
+
+// Shipment Bounded Context – Gateway gọi. (Shipment nhận đơn mới qua Kafka, không qua gRPC)
+service ShipmentService {
+  rpc GetShipment (ShipmentIdRequest) returns (Shipment);            // GET   /api/shipments/:shipid
+  rpc GetShipmentByOrder (OrderIdRequest) returns (Shipment);        // GET   /api/shipments/order/:oid
+  rpc UpdateShipmentStatus (UpdateStatusRequest) returns (Shipment); // PATCH /api/shipments/:shipid/status
+}
+
+message ShipmentIdRequest { int32 shipid = 1; }
+message OrderIdRequest { int32 oid = 1; }
+
+message UpdateStatusRequest {
+  int32 shipid = 1;
+  string status = 2;
+}
+
+message ShipmentItem {
+  int32 pid = 1;
+  int32 qty = 2;
+  double unit_price = 3;
+}
+
+message HistoryEntry {
+  string status = 1;
+  string at = 2;     // ISO-8601
+  string by = 3;
+}
+
+message Shipment {
+  int32 shipid = 1;
+  int32 oid = 2;
+  int32 uid = 3;
+  string status = 4;
+  double total_amount = 5;
+  repeated ShipmentItem items = 6;
+  repeated HistoryEntry history = 7;
+  string created_at = 8;
+  string updated_at = 9;
+}

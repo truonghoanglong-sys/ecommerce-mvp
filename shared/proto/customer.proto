@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package customer;
+
+// Customer & Membership Bounded Context.
+//  - Gateway gọi các RPC "public" (danh tính người gọi gửi qua metadata x-user-id / x-user-role)
+//  - Auth gọi CreateCustomer khi đăng ký; Order gọi GetCustomer để tính discount
+service CustomerService {
+  // ---- Gateway gọi ----
+  rpc GetCustomerProfile (GetCustomerRequest) returns (CustomerReply);    // GET /api/customers/:uid
+  rpc UpdateCustomer (UpdateCustomerRequest) returns (UpdateCustomerReply); // PUT /api/customers/:uid
+  rpc GetMembership (GetCustomerRequest) returns (MembershipReply);       // GET /api/customers/:uid/membership
+  rpc ListMemberships (Empty) returns (MembershipList);                   // GET /api/memberships
+
+  // ---- Service nội bộ gọi ----
+  rpc CreateCustomer (CreateCustomerRequest) returns (CustomerReply);     // Auth Service
+  rpc GetCustomer (GetCustomerRequest) returns (CustomerReply);           // Order Service
+}
+
+message Empty {}
+
+message CreateCustomerRequest {
+  int32 uid = 1;
+  string fullname = 2;
+  string phone = 3;
+}
+
+message GetCustomerRequest {
+  int32 uid = 1;
+}
+
+message CustomerReply {
+  int32 uid = 1;
+  string fullname = 2;
+  string phone = 3;
+  int32 mid = 4;
+  string mname = 5;
+  int32 score = 6;
+  double discount_percent = 7;
+}
+
+// update_mask = danh sách field client thực sự gửi lên (giống FieldMask của Google API)
+// → phân biệt được "không gửi" với "gửi giá trị rỗng/0" khi cập nhật một phần.
+message UpdateCustomerRequest {
+  int32 uid = 1;
+  string fullname = 2;
+  string phone = 3;
+  int32 score = 4;
+  repeated string update_mask = 5;
+}
+
+message UpdateCustomerReply {
+  string message = 1;
+  CustomerReply customer = 2;
+}
+
+message MembershipReply {
+  int32 uid = 1;
+  int32 mid = 2;
+  string mname = 3;
+  int32 score = 4;
+  double discount_percent = 5;
+}
+
+message Membership {
+  int32 mid = 1;
+  string mname = 2;
+  int32 min_score = 3;
+  double discount_percent = 4;
+}
+
+message MembershipList {
+  repeated Membership items = 1;
+}

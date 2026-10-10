@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package order;
+
+// Order Management Bounded Context – Gateway gọi.
+service OrderService {
+  rpc CreateOrder (CreateOrderRequest) returns (Order);   // POST /api/orders
+  rpc ListOrders (Empty) returns (OrderList);             // GET  /api/orders
+  rpc GetOrder (OrderIdRequest) returns (Order);          // GET  /api/orders/:oid
+}
+
+message Empty {}
+
+message OrderItemInput {
+  int32 pid = 1;
+  int32 qty = 2;
+}
+
+message CreateOrderRequest {
+  repeated OrderItemInput items = 1;
+}
+
+message OrderIdRequest {
+  int32 oid = 1;
+}
+
+message OrderItem {
+  int32 pid = 1;
+  int32 qty = 2;
+  double unit_price = 3;
+}
+
+message Order {
+  int32 oid = 1;
+  int32 uid = 2;
+  double subtotal = 3;
+  double discount_percent = 4;
+  double discount = 5;
+  double total_amount = 6;
+  string status = 7;
+  string created_at = 8;          // ISO-8601
+  repeated OrderItem items = 9;
+  string membership = 10;         // hạng thành viên lúc đặt (chỉ có khi tạo đơn)
+}
+
+message OrderList {
+  repeated Order items = 1;
+}

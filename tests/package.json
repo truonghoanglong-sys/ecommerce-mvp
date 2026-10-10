@@ -1,0 +1,10 @@
+{
+  "name": "e2e-tests",
+  "private": true,
+  "description": "Chạy 25 test case (file 25_TestCases_5_BoundedContexts.xlsx) qua API Gateway",
+  "scripts": { "test": "node e2e.js" },
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "mongodb": "^6.12.0"
+  }
+}

@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package product;
+
+// Product Catalog Bounded Context.
+service ProductService {
+  // ---- Gateway gọi ----
+  rpc ListProducts (Empty) returns (ProductList);                       // GET    /api/products
+  rpc GetProduct (ProductIdRequest) returns (Product);                  // GET    /api/products/:pid
+  rpc CreateProduct (CreateProductRequest) returns (Product);           // POST   /api/products (ADMIN)
+  rpc UpdateProduct (UpdateProductRequest) returns (UpdateProductReply); // PUT   /api/products/:pid (ADMIN)
+  rpc DeleteProduct (ProductIdRequest) returns (DeleteProductReply);    // DELETE /api/products/:pid (ADMIN)
+
+  // ---- Order Service gọi ----
+  rpc GetProducts (GetProductsRequest) returns (ProductList);   // sequence bước 6: giá + tồn kho
+  rpc ReserveStock (StockRequest) returns (ReserveReply);       // sequence bước 7: trừ kho (được hết hoặc không gì cả)
+  rpc ReleaseStock (ReleaseRequest) returns (ReleaseReply);     // compensation: hoàn kho
+}
+
+message Empty {}
+
+message Product {
+  int32 pid = 1;
+  string pname = 2;
+  double price = 3;
+  int32 quantity = 4;
+}
+message ProductList { repeated Product items = 1; }
+
+message ProductIdRequest { int32 pid = 1; }
+
+message CreateProductRequest {
+  string pname = 1;
+  double price = 2;
+  int32 quantity = 3;
+}
+
+message UpdateProductRequest {
+  int32 pid = 1;
+  string pname = 2;
+  double price = 3;
+  int32 quantity = 4;
+  repeated string update_mask = 5;   // field nào client thực sự gửi
+}
+
+message UpdateProductReply {
+  string message = 1;
+  Product product = 2;
+}
+
+message DeleteProductReply {
+  string message = 1;
+  int32 pid = 2;
+}
+
+message GetProductsRequest { repeated int32 pids = 1; }
+
+message StockItem {
+  int32 pid = 1;
+  int32 qty = 2;
+}
+
+// reservation_id do Order Service sinh (UUID) → gọi lại nhiều lần không bị trừ kho 2 lần
+message StockRequest {
+  string reservation_id = 1;
+  repeated StockItem items = 2;
+}
+
+message ReservedItem {
+  int32 pid = 1;
+  int32 qty = 2;
+  double unit_price = 3;
+}
+message ReserveReply {
+  string reservation_id = 1;
+  repeated ReservedItem items = 2;
+}
+
+message ReleaseRequest { string reservation_id = 1; }
+message ReleaseReply { bool released = 1; }

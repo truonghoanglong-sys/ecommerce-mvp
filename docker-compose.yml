@@ -1,0 +1,223 @@
+name: ecommerce-mvp
+
+services:
+  # ---------- Identity & Access ----------
+  auth-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${AUTH_DB_USER}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}
+      POSTGRES_DB: ${AUTH_DB_NAME}
+    ports: ["5433:5432"]
+    volumes: [auth-db-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTH_DB_USER} -d ${AUTH_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Customer & Membership ----------
+  customer-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${CUSTOMER_DB_USER}
+      POSTGRES_PASSWORD: ${CUSTOMER_DB_PASSWORD}
+      POSTGRES_DB: ${CUSTOMER_DB_NAME}
+    ports: ["5434:5432"]
+    volumes: [customer-db-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CUSTOMER_DB_USER} -d ${CUSTOMER_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Order Management ----------
+  order-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${ORDER_DB_USER}
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD}
+      POSTGRES_DB: ${ORDER_DB_NAME}
+    ports: ["5435:5432"]
+    volumes: [order-db-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORDER_DB_USER} -d ${ORDER_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Product Catalog ----------
+  product-db:
+    image: mongo:7
+    ports: ["27018:27017"]
+    volumes: [product-db-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Shipment ----------
+  shipment-db:
+    image: mongo:7
+    ports: ["27019:27017"]
+    volumes: [shipment-db-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------- API Gateway: cache + rate limit ----------
+  redis:
+    image: redis:7.2-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Message broker (KRaft, không cần Zookeeper) ----------
+  kafka:
+    image: apache/kafka:3.7.0
+    ports: ["29092:29092"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # Job chạy 1 lần: tạo topic order-created rồi thoát
+  kafka-init:
+    image: apache/kafka:3.7.0
+    depends_on:
+      kafka: { condition: service_healthy }
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092
+      --create --if-not-exists --topic order-created --partitions 3 --replication-factor 1
+      && echo 'topic order-created ready'"
+    restart: "no"
+
+  # =====================================================================
+  #  APPLICATION SERVICES. Chỉ API Gateway mở cổng ra ngoài.
+  #  Gateway ↔ service và service ↔ service đều dùng gRPC (đúng sơ đồ kiến trúc);
+  #  cổng HTTP của mỗi service chỉ còn dùng cho /health.
+  # =====================================================================
+  customer-service:
+    build: { context: ., dockerfile: services/customer-service/Dockerfile }
+    environment:
+      PORT: 3002
+      GRPC_PORT: 50052
+      DATABASE_URL: postgres://${CUSTOMER_DB_USER}:${CUSTOMER_DB_PASSWORD}@customer-db:5432/${CUSTOMER_DB_NAME}
+    depends_on:
+      customer-db: { condition: service_healthy }
+    restart: unless-stopped
+
+  auth-service:
+    build: { context: ., dockerfile: services/auth-service/Dockerfile }
+    environment:
+      PORT: 3001
+      GRPC_PORT: 50051
+      DATABASE_URL: postgres://${AUTH_DB_USER}:${AUTH_DB_PASSWORD}@auth-db:5432/${AUTH_DB_NAME}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      CUSTOMER_GRPC_URL: customer-service:50052
+      SEED_ADMIN_USERNAME: admin
+      SEED_ADMIN_PASSWORD: Admin@123
+      SEED_STAFF_USERNAME: shipper
+      SEED_STAFF_PASSWORD: Shipper@123
+    depends_on:
+      auth-db: { condition: service_healthy }
+      customer-service: { condition: service_healthy }
+    restart: unless-stopped
+
+  product-service:
+    build: { context: ., dockerfile: services/product-service/Dockerfile }
+    environment:
+      PORT: 3003
+      GRPC_PORT: 50053
+      MONGO_URL: mongodb://product-db:27017
+      MONGO_DB: product_db
+    depends_on:
+      product-db: { condition: service_healthy }
+    restart: unless-stopped
+
+  order-service:
+    build: { context: ., dockerfile: services/order-service/Dockerfile }
+    environment:
+      PORT: 3004
+      GRPC_PORT: 50054
+      DATABASE_URL: postgres://${ORDER_DB_USER}:${ORDER_DB_PASSWORD}@order-db:5432/${ORDER_DB_NAME}
+      CUSTOMER_GRPC_URL: customer-service:50052
+      PRODUCT_GRPC_URL: product-service:50053
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      order-db: { condition: service_healthy }
+      customer-service: { condition: service_healthy }
+      product-service: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  shipment-service:
+    build: { context: ., dockerfile: services/shipment-service/Dockerfile }
+    environment:
+      PORT: 3005
+      GRPC_PORT: 50055
+      MONGO_URL: mongodb://shipment-db:27017
+      MONGO_DB: shipment_db
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_GROUP_ID: shipment-service
+    depends_on:
+      shipment-db: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  api-gateway:
+    build: { context: ., dockerfile: services/api-gateway/Dockerfile }
+    ports: ["8080:8080"]          # CỔNG DUY NHẤT client được gọi
+    environment:
+      PORT: 8080
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_URL: redis://redis:6379
+      # gRPC tới từng service
+      AUTH_GRPC_URL: auth-service:50051
+      CUSTOMER_GRPC_URL: customer-service:50052
+      PRODUCT_GRPC_URL: product-service:50053
+      ORDER_GRPC_URL: order-service:50054
+      SHIPMENT_GRPC_URL: shipment-service:50055
+      # HTTP /health của từng service (cho GET /api/health)
+      AUTH_HEALTH_URL: http://auth-service:3001
+      CUSTOMER_HEALTH_URL: http://customer-service:3002
+      PRODUCT_HEALTH_URL: http://product-service:3003
+      ORDER_HEALTH_URL: http://order-service:3004
+      SHIPMENT_HEALTH_URL: http://shipment-service:3005
+    depends_on:
+      redis: { condition: service_healthy }
+      auth-service: { condition: service_started }
+      customer-service: { condition: service_started }
+      product-service: { condition: service_started }
+      order-service: { condition: service_started }
+      shipment-service: { condition: service_started }
+    restart: unless-stopped
+
+volumes:
+  auth-db-data:
+  customer-db-data:
+  order-db-data:
+  product-db-data:
+  shipment-db-data:
